@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+from typing import Optional, List, Union
 
 # User schemas
 class UserBase(BaseModel):
@@ -32,3 +33,11 @@ class Transaction(TransactionBase):
 
     class Config:
         from_attributes = True  
+
+# Token Schemas
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+class TokenData(BaseModel):
+    email: Optional[str] = None
