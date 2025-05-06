@@ -4,6 +4,7 @@ from typing import List
 
 from app.database.db import get_db
 from app.models.transaction import Transaction
+from app.models.category import Category
 from app.models.user import User
 from app.schemas.schemas import TransactionCreate, Transaction as TransactionSchema
 from app.utils.auth import get_current_active_user
@@ -19,12 +20,21 @@ def create_transaction(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
+    # Verify the category exists and belongs to the user
+    category = db.query(Category).filter(
+        Category.id == transaction.category_id,
+        Category.user_id == current_user.id
+    ).first()
+    
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
     db_transaction = Transaction(
         amount=transaction.amount,
         description=transaction.description,
-        category=transaction.category,
+        category_id=transaction.category_id,
         date=transaction.date,
-        user_id=current_user.id  # Use the current user's ID
+        user_id=current_user.id
     )
     db.add(db_transaction)
     db.commit()
