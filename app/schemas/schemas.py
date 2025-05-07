@@ -1,6 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime, date
+import decimal
+from decimal import Decimal
 
 # User schemas
 class UserBase(BaseModel):
@@ -31,12 +33,36 @@ class Category(CategoryBase):
     class Config:
         from_attributes = True
 
-# Transaction schemas - NOW AFTER CATEGORY SCHEMAS
+# Transaction schemas with enhanced validation
 class TransactionBase(BaseModel):
-    amount: float
-    description: str
-    category_id: int
+    amount: float = Field(..., gt=0, description="Transaction amount must be greater than zero")
+    description: str = Field(..., min_length=3, max_length=100, description="Description must be between 3 and 100 characters")
+    category_id: int = Field(..., gt=0, description="Must reference a valid category")
     date: Optional[datetime] = None
+
+    @field_validator('amount')
+    @classmethod
+    def amount_precision(cls, v):
+        # Ensure amount has at most 2 decimal places
+        decimal_val = Decimal(str(v)).quantize(Decimal('0.01'))
+        if decimal_val != Decimal(str(v)):
+            raise ValueError('Amount must have at most 2 decimal places')
+        return float(decimal_val)
+    
+    @field_validator('description')
+    @classmethod
+    def description_not_empty(cls, v):
+        if v.strip() == "":
+            raise ValueError('Description cannot be empty or only whitespace')
+        return v
+    
+    @model_validator(mode='after')
+    @classmethod
+    def check_future_date(cls, values):
+        date_val = values.date
+        if date_val and date_val > datetime.now():
+            raise ValueError('Transaction date cannot be in the future')
+        return values
 
 class TransactionCreate(TransactionBase):
     pass
@@ -45,17 +71,9 @@ class Transaction(TransactionBase):
     id: int
     user_id: int
 
-    class Config:
-        from_attributes = True
-
-# This now works because Category is defined above
-class TransactionWithCategory(TransactionBase):
-    id: int
-    user_id: int
-    category: Category
-
-    class Config:
-        from_attributes = True
+    model_config = {
+        "from_attributes": True
+    }
 
 # Token schemas
 class Token(BaseModel):

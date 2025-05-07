@@ -11,11 +11,59 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.schemas.schemas import BudgetCreate, Budget as BudgetSchema, BudgetStatus
 from app.utils.auth import get_current_active_user
+from app.utils.db_utils import safe_db_transaction
 
 router = APIRouter(
     prefix="/budgets",
     tags=["budgets"]
 )
+
+# Example usage in a route handler:
+@router.post("/", response_model=BudgetSchema)
+def create_budget(
+    budget: BudgetCreate, 
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    # Verify the category exists and belongs to the user
+    category = db.query(Category).filter(
+        Category.id == budget.category_id,
+        Category.user_id == current_user.id
+    ).first()
+    
+    if not category:
+        raise HTTPException(status_code=404, detail="Category not found")
+    
+    # Check if a budget for this category and time period already exists
+    existing_budget = db.query(Budget).filter(
+        Budget.category_id == budget.category_id,
+        Budget.user_id == current_user.id,
+        Budget.end_date >= budget.start_date,
+        Budget.start_date <= budget.end_date
+    ).first()
+    
+    if existing_budget:
+        raise HTTPException(
+            status_code=400, 
+            detail="A budget for this category and time period already exists"
+        )
+    
+    # Create the budget
+    db_budget = Budget(
+        amount=budget.amount,
+        start_date=budget.start_date or date.today(),
+        end_date=budget.end_date,
+        category_id=budget.category_id,
+        user_id=current_user.id,
+        name=budget.name
+    )
+    
+    # This is where the context manager is used - check indentation
+    with safe_db_transaction(db) as session:
+        session.add(db_budget)
+        session.flush()
+        return db_budget
+
 
 @router.post("/", response_model=BudgetSchema)
 def create_budget(
