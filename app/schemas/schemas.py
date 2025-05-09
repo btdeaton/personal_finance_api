@@ -64,8 +64,39 @@ class TransactionBase(BaseModel):
             raise ValueError('Transaction date cannot be in the future')
         return values
 
-class TransactionCreate(TransactionBase):
-    pass
+class TransactionCreate(BaseModel):
+    amount: float
+    description: str
+    category_id: int
+    date: Optional[datetime] = None
+    
+    @field_validator('date')
+    @classmethod
+    def ensure_date_format(cls, v):
+        if v is None:
+            return v
+        
+        # If it's already a datetime object
+        if isinstance(v, datetime):
+            # Make naive if it has timezone
+            if v.tzinfo is not None:
+                return v.replace(tzinfo=None)
+            return v
+        
+        # If it's a string, parse it
+        try:
+            # Parse ISO format string
+            dt = datetime.fromisoformat(v.replace('Z', '+00:00'))
+            # Convert to naive datetime
+            return dt.replace(tzinfo=None)
+        except:
+            # Alternative parsing for other formats
+            try:
+                from dateutil import parser
+                dt = parser.parse(v)
+                return dt.replace(tzinfo=None)
+            except:
+                raise ValueError("Invalid date format")
 
 class Transaction(TransactionBase):
     id: int
@@ -85,7 +116,7 @@ class TokenData(BaseModel):
 
 # Budget schemas
 class BudgetBase(BaseModel):
-    amount: float
+    amount: float = Field(..., gt=0)
     category_id: int
     start_date: Optional[date] = None
     end_date: date

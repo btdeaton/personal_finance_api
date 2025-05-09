@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 from pydantic import ValidationError
 
@@ -21,6 +22,12 @@ from app.utils.error_handlers import (
     general_exception_handler
 )
 from app.utils.rate_limiter import rate_limiter
+import logging
+from app.utils.logger import get_logger
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = get_logger(__name__)
 
 # Create database tables
 UserBase.metadata.create_all(bind=engine)
@@ -74,6 +81,16 @@ app = FastAPI(
     ]
 )
 
+# Add CORS middleware first
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],  # Explicitly include OPTIONS
+    allow_headers=["*"],
+    expose_headers=["*"]  # Added this to expose response headers
+)
+
 # Register exception handlers
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(SQLAlchemyError, sqlalchemy_exception_handler)
@@ -92,15 +109,34 @@ app.include_router(budgets_router)
 app.include_router(transactions_router)
 app.include_router(reports_router)
 
+# Include middleware
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    """Add response time information to all responses"""
+    import time
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"Request: {request.method} {request.url}")
+    try:
+        response = await call_next(request)
+        logger.info(f"Response status: {response.status_code}")
+        return response
+    except Exception as e:
+        logger.error(f"Request failed: {str(e)}")
+        raise
+
 @app.middleware("http")
 async def validate_responses(request: Request, call_next):
     """
     Middleware to validate all responses against their declared models
     """
     response = await call_next(request)
-    
-    # Add additional validation here if needed
-    
     return response
 
 @app.middleware("http")
@@ -111,13 +147,3 @@ async def rate_limiting_middleware(request: Request, call_next):
             detail="Rate limit exceeded. Please try again later."
         )
     return await call_next(request)
-
-@app.middleware("http")
-async def add_process_time_header(request: Request, call_next):
-    """Add response time information to all responses"""
-    import time
-    start_time = time.time()
-    response = await call_next(request)
-    process_time = time.time() - start_time
-    response.headers["X-Process-Time"] = str(process_time)
-    return response
