@@ -131,7 +131,7 @@ def monthly_spending(
 @router.get("/transaction-trends")
 def transaction_trends(
     interval: str = Query("monthly", enum=["daily", "weekly", "monthly"]),
-    timeframe: int = 12,  # Number of intervals to analyze
+    timeframe: int = 12,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -144,12 +144,13 @@ def transaction_trends(
     if interval == "daily":
         start_date = today - timedelta(days=timeframe)
         date_format = '%Y-%m-%d'
+        # For daily, use the full date
         date_extract = func.date(Transaction.date)
     elif interval == "weekly":
         start_date = today - timedelta(weeks=timeframe)
-        # This is more complex for weekly intervals
         date_format = 'Week %W, %Y'
-        date_extract = func.date_trunc('week', Transaction.date)
+        # For SQLite, extract year and week
+        date_extract = func.strftime('%Y-%W', Transaction.date)
     else:  # monthly
         year = today.year - (timeframe // 12)
         month = today.month - (timeframe % 12)
@@ -158,7 +159,8 @@ def transaction_trends(
             year -= 1
         start_date = date(year, month, 1)
         date_format = '%Y-%m'
-        date_extract = func.date_trunc('month', Transaction.date)
+        # For SQLite, extract year and month
+        date_extract = func.strftime('%Y-%m', Transaction.date)
     
     # Query data with interval grouping
     results = db.query(
@@ -179,12 +181,29 @@ def transaction_trends(
     trend_data = []
     for result in results:
         interval_date = result.interval_date
-        # Format the date based on the interval type
-        if isinstance(interval_date, date):
-            formatted_date = interval_date.strftime(date_format)
-        else:
-            # Handle case when date_trunc returns a datetime or string
-            formatted_date = str(interval_date)
+        # Format may need different handling based on the interval type
+        if interval == "daily":
+            # If it's already a date object (daily case)
+            if isinstance(interval_date, date):
+                formatted_date = interval_date.strftime(date_format)
+            else:
+                # Handle string case
+                formatted_date = str(interval_date)
+        elif interval == "weekly":
+            # For weekly, extract year and week from the result
+            try:
+                year, week = interval_date.split('-')
+                formatted_date = f"Week {week}, {year}"
+            except:
+                formatted_date = str(interval_date)
+        else:  # monthly
+            # For monthly, extract year and month from the result
+            try:
+                year, month = interval_date.split('-')
+                date_obj = date(int(year), int(month), 1)
+                formatted_date = date_obj.strftime('%B %Y')
+            except:
+                formatted_date = str(interval_date)
             
         trend_data.append({
             "interval": formatted_date,
